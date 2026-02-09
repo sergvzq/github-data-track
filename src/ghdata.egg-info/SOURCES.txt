@@ -1,0 +1,11 @@
+README.md
+pyproject.toml
+src/ghdata/__init__.py
+src/ghdata/__main__.py
+src/ghdata/config.py
+src/ghdata.egg-info/PKG-INFO
+src/ghdata.egg-info/SOURCES.txt
+src/ghdata.egg-info/dependency_links.txt
+src/ghdata.egg-info/requires.txt
+src/ghdata.egg-info/top_level.txt
+src/tests/test_smoke.py
