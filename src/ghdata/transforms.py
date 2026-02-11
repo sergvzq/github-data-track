@@ -1,12 +1,12 @@
 from __future__ import annotations
- 
+
 from ghdata.storage import RepoRow
 
 
 def repo_json_to_row(item: dict) -> RepoRow:
     return RepoRow(
         repo_id=int(item["id"]),
-        name = str(item["name"]),
+        name=str(item["name"]),
         full_name=str(item["full_name"]),
         private=1 if item.get("private") else 0,
         html_url=str(item["html_url"]),

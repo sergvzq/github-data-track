@@ -11,7 +11,7 @@ class RepoRow:
     repo_id: int
     name: str
     full_name: str
-    private: int # 0/1
+    private: int  # 0/1
     html_url: str
     stargazers_count: int
     forks_count: int
@@ -23,13 +23,13 @@ class Storage:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
         self._ensure_schema()
-    
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA foreign_keys=ON;")
         return conn
-    
+
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -52,7 +52,7 @@ class Storage:
         rows_list = list(rows)
         if not rows_list:
             return 0
-        
+
         with self._connect() as conn:
             conn.executemany(
                 """
@@ -82,13 +82,13 @@ class Storage:
                         r.stargazers_count,
                         r.forks_count,
                         r.open_issues_count,
-                        r.pushed_at
+                        r.pushed_at,
                     )
                     for r in rows_list
                 ],
             )
         return len(rows_list)
-    
+
     def list_repos(self, limit: int = 10) -> list[tuple[str, int, int, str | None]]:
         with self._connect() as conn:
             cur = conn.execute(

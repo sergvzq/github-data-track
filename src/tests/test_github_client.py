@@ -10,7 +10,7 @@ def make_client_with_transport(transport: httpx.BaseTransport) -> GitHubClient:
     # Override _request to use a client with our transport
     client = GitHubClient(token="test-token")
 
-    def _request(method: str, path: str, params=None):
+    def _request_raw(method: str, path: str, params=None):
         url = f"{client.base_url}{path}"
         with httpx.Client(
             transport=transport,
@@ -23,9 +23,9 @@ def make_client_with_transport(transport: httpx.BaseTransport) -> GitHubClient:
         if resp.status_code == 401:
             raise GitHubAuthError("Unauthorized (401). Check your GITHUB_TOKEN")
         resp.raise_for_status()
-        return resp.json()
+        return resp
 
-    object.__setattr__(client, "_request", _request)  # ok for tests
+    object.__setattr__(client, "_request_raw", _request_raw)  # ok for tests
     return client
 
 
@@ -53,3 +53,31 @@ def test_get_viewer_unathorized_raises():
 
     with pytest.raises(GitHubAuthError):
         client.get_viewer()
+# import httpx
+# import pytest
+
+# from ghdata.github_client import GitHubAuthError, GitHubClient
+
+
+# def test_get_viewer_success():
+#     def handler(request: httpx.Request) -> httpx.Response:
+#         assert request.url.path == "/user"
+#         return httpx.Response(200, json={"login": "serg-test"})
+
+#     transport = httpx.MockTransport(handler)
+#     client = GitHubClient(token="test-token", transport=transport)
+
+#     data = client.get_viewer()
+#     assert data["login"] == "serg-test"
+
+
+# def test_get_viewer_unauthorized_raises():
+#     def handler(request: httpx.Request) -> httpx.Response:
+#         assert request.url.path == "/user"
+#         return httpx.Response(401, json={"message": "Bad credentials"})
+
+#     transport = httpx.MockTransport(handler)
+#     client = GitHubClient(token="bad-token", transport=transport)
+
+#     with pytest.raises(GitHubAuthError):
+#         client.get_viewer()
