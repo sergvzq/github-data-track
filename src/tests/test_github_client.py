@@ -53,6 +53,8 @@ def test_get_viewer_unathorized_raises():
 
     with pytest.raises(GitHubAuthError):
         client.get_viewer()
+
+
 # import httpx
 # import pytest
 
