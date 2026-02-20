@@ -19,6 +19,21 @@ class RepoRow:
     pushed_at: str | None
 
 
+@dataclass(frozen=True)
+class IssueRow:
+    issue_id: int
+    repo_id: int
+    number: int
+    title: str
+    state: str  # "open" or "closed"
+    is_pull_request: int  # 0/1
+    created_at: str
+    updated_at: str  # ISO 8601 timestamp
+    closed_at: str | None
+    html_url: str
+    user_login: str | None
+
+
 class Storage:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
@@ -61,6 +76,7 @@ class Storage:
                     state TEXT NOT NULL,             -- "open" or "closed"
                     is_pull_request INTEGER NOT NULL, -- 0/1
                     created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
                     closed_at TEXT,
                     html_url TEXT NOT NULL,
                     user_login TEXT,
@@ -72,6 +88,17 @@ class Storage:
             # Helpful index for querying by repo and state
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_issues_repo_state ON issues(repo_id, state);"
+            )
+
+            # A simple ke-value table to store app state.
+            # We'll store a timestamp of the last successful sync here, which we can use to do incremental updates in the future.
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                """
             )
 
     def upsert_repos(self, rows: Iterable[RepoRow]) -> int:
@@ -129,9 +156,9 @@ class Storage:
                 """
                 INSERT INTO issues(
                     issue_id, repo_id, number, title, state, is_pull_request,
-                    created_at, closed_at, html_url, user_login
+                    created_at, updated_at, closed_at, html_url, user_login
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(issue_id) DO UPDATE SET
                     repo_id=excluded.repo_id,
                     number=excluded.number,
@@ -139,6 +166,7 @@ class Storage:
                     state=excluded.state,
                     is_pull_request=excluded.is_pull_request,
                     created_at=excluded.created_at,
+                    updated_at=excluded.updated_at,
                     closed_at=excluded.closed_at,
                     html_url=excluded.html_url,
                     user_login=excluded.user_login
@@ -153,6 +181,7 @@ class Storage:
                         r.state,
                         r.is_pull_request,
                         r.created_at,
+                        r.updated_at,
                         r.closed_at,
                         r.html_url,
                         r.user_login,
@@ -168,19 +197,29 @@ class Storage:
         """
         with self._connect() as conn:
             total = conn.execute("SELECT COUNT(*) FROM issues").fetchone()[0]
-            open_count = conn.execute(
-                "SELECT COUNT (*) FROM issues WHERE state='open';"
+
+            # Issues only, not PRs:
+            issues_count = conn.execute(
+                "SELECT COUNT(*) FROM issues WHERE is_pull_request=0 AND state='open';"
             ).fetchone()[0]
-            closed_count = conn.execute(
-                "SELECT COUNT (*) FROM issues WHERE state='closed';"
+            issues_closed_count = conn.execute(
+                "SELECT COUNT(*) FROM issues WHERE is_pull_request=0 AND state='closed';"
             ).fetchone()[0]
 
-            top_open = conn.execute(
+            # PRs only:
+            pr_count = conn.execute(
+                "SELECT COUNT(*) FROM issues WHERE is_pull_request=1 AND state='open';"
+            ).fetchone()[0]
+            pr_closed_count = conn.execute(
+                "SELECT COUNT(*) FROM issues WHERE is_pull_request=1 AND state='closed';"
+            ).fetchone()[0]
+
+            top_open_issues = conn.execute(
                 """
                 SELECT r.full_name, COUNT(*) AS open_issues
                 FROM issues i
                 JOIN repos r ON r.repo_id = i.repo_id
-                WHERE i.state = 'open'
+                WHERE i.is_pull_request=0 AND i.state='open'
                 GROUP BY r.full_name
                 ORDER BY open_issues DESC
                 LIMIT 5;
@@ -189,9 +228,11 @@ class Storage:
 
         return {
             "total": total,
-            "open": open_count,
-            "closed": closed_count,
-            "top_open": top_open,
+            "issues_open": issues_count,
+            "issues_closed": issues_closed_count,
+            "prs_open": pr_count,
+            "prs_closed": pr_closed_count,
+            "top_open_issues": top_open_issues,
         }
 
     def list_repos(self, limit: int = 10) -> list[tuple[str, int, int, str | None]]:
@@ -207,16 +248,38 @@ class Storage:
             )
             return list(cur.fetchall())
 
+    def get_state(self, key: str) -> str | None:
+        """
+        Read a string value from the state table by key.
+        Returns None if key does not exist.
 
-@dataclass(frozen=True)
-class IssueRow:
-    issue_id: int
-    repo_id: int
-    number: int
-    title: str
-    state: str  # "open" or "closed"
-    is_pull_request: int  # 0/1
-    created_at: str
-    closed_at: str | None
-    html_url: str
-    user_login: str | None
+        :param self: Description
+        :param key: Description
+        :type key: str
+        :return: Description
+        :rtype: str | None
+
+        """
+        with self._connect() as conn:
+            row = conn.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
+            return row[0] if row else None
+
+    def set_state(self, key: str, value: str) -> None:
+        """
+        Upsert a string value in the state table.
+
+        :param self: Description
+        :param key: Description
+        :type key: str
+        :param value: Description
+        :type value: str
+        """
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO state(key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+                """,
+                (key, value),
+            )

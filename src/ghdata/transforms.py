@@ -37,6 +37,7 @@ def issue_json_to_row(repo_id: int, item: dict) -> IssueRow:
         state=str(item.get("state") or "unknown"),
         is_pull_request=is_pr,
         created_at=str(item["created_at"]),
+        updated_at=str(item["updated_at"]),
         closed_at=item.get("closed_at"),
         html_url=str(item["html_url"]),
         user_login=str(user_login) if user_login else None,

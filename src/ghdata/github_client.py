@@ -124,7 +124,9 @@ class GitHubClient:
 
         return all_items
 
-    def iter_repo_issues(self, owner: str, repo: str, per_page: int = 100) -> list[dict[str, Any]]:
+    def iter_repo_issues(
+        self, owner: str, repo: str, per_page: int = 100, since: str | None = None
+    ) -> list[dict[str, Any]]:
         """
         Fetch all issues for a repo using GitHub's Issues endpoint.
 
@@ -132,11 +134,17 @@ class GitHubClient:
         - This returns BOTH issues and PRs, We'll mark PRs by checking the presence
           of the "pull_request" key in each item.
         - We use state=all so we can compute open vs closed metrics.
+        - We use the "since" parameter to only fetch issues updated since a certain
+          time, which is useful for incremental updates.
         """
+
         all_items: list[dict[str, Any]] = []
-        next_url: str | None = (
-            f"{self.base_url}/repos/{owner}/{repo}/issues?state=all&per_page={per_page}&state=all"
-        )
+        base = f"{self.base_url}/repos/{owner}/{repo}/issues?state=all&per_page={per_page}&page=1"
+
+        if since:
+            base += f"&since={since}"  # "since" should be ISO 8601 like "2025-01-01T00:00:00Z"
+        #print(f"Fetching issues for {owner}/{repo} with URL: {base}")
+        next_url: str | None = base
 
         while next_url:
             # Same error-handling pattern as iter_user_reopos

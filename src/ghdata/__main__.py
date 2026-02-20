@@ -6,6 +6,7 @@ from ghdata.config import load_settings
 from ghdata.github_client import GitHubClient, GitHubError
 from ghdata.storage import Storage
 from ghdata.transforms import repo_json_to_row, issue_json_to_row
+from ghdata.report import write_markdown_report
 
 
 def main() -> int:
@@ -30,6 +31,10 @@ def main() -> int:
         help="How many repos to sync issues for (safety)",
     )
 
+    # Report writing arguments
+    parser.add_argument("--report", action="store_true", help="Write a Markdown report")
+    parser.add_argument("--report-path", default="report.md", help="Where to write the report")
+
     args = parser.parse_args()
 
     if args.ping:
@@ -46,6 +51,10 @@ def main() -> int:
         if args.sync_issues:
             # Safety default: syncing issues for every repo can be slow if you have many.
             # We'll default to top N repos by stars already storeed in DB
+
+            # Read the last successul sync timestap (ISO 8601)
+            # If missing, we do a full sync
+            last_since = store.get_state("issues_last_since")
 
             repos = store.list_repos(limit=args.issue_limit_repos)
 
@@ -68,13 +77,21 @@ def main() -> int:
                 # full_name looks like "owner repo"
                 owner, repo = full_name.split("/", 1)
 
-                items = client.iter_repo_issues(owner=owner, repo=repo, per_page=100)
+                items = client.iter_repo_issues(
+                    owner=owner, repo=repo, per_page=100, since=last_since
+                )
                 rows = [issue_json_to_row(repo_id=repo_id, item=1) for i in items]
 
                 total_synced += store.upsert_issues(rows)
                 print(f"Synced {len(rows)} issues for {full_name}")
 
             print(f"Total synced issues: {total_synced}")
+
+            from datetime import datetime, timezone
+
+            now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            store.set_state("repos_last_sync", now_utc)
+
             return 0
 
         if args.me:
@@ -106,10 +123,20 @@ def main() -> int:
         if args.metrics:
             m = store.metrics()
             print(f"Total issues: {m['total']}")
-            print(f"open: {m['open']} | closed: {m['closed']}")
+            print(f"issues open: {m['issues_open']} | issues closed: {m['issues_closed']}")
+            print(f"PRs open: {m['prs_open']} | PRs closed: {m['prs_closed']}")
+
             print("top repos by open issues:")
-            for full_name, open_issues in m["top_open"]:
+            for full_name, open_issues in m["top_open_issues"]:
                 print(f"{full_name}: {open_issues}")
+            return 0
+
+        if args.report:
+            # from pathlib import Path
+
+            out = Path(args.report_path)
+            write_markdown_report(store, out)
+            print(f"Wrote report to {out}")
             return 0
 
         parser.print_help()
